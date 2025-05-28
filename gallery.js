@@ -3,6 +3,21 @@ import { PointerLockControls } from "https://cdn.jsdelivr.net/npm/three@0.146.0/
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { Client } from "https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js";
 
+// Loading bar setup
+const loadingBar = document.getElementById("loading-bar");
+const loadingScreen = document.getElementById("loading-screen");
+
+const loadingManager = new THREE.LoadingManager();
+
+loadingManager.onProgress = function (url, itemsLoaded, itemsTotal) {
+  const percent = (itemsLoaded / itemsTotal) * 100;
+  if (loadingBar) loadingBar.style.width = `${percent}%`;
+};
+
+loadingManager.onLoad = function () {
+  if (loadingScreen) loadingScreen.style.display = "none";
+};
+
 let audioInitialized = false;
 let positionalSound;
 
@@ -123,7 +138,7 @@ scene.add(leftWall);
 scene.add(rightWall);
 
 // Create model loader
-const loader = new GLTFLoader();
+const loader = new GLTFLoader(loadingManager);
 
 // Create vase pedestal group
 const vasePedestal = new THREE.Group();
