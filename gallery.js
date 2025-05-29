@@ -22,8 +22,8 @@ let audioInitialized = false;
 let positionalSound;
 
 // Initialize Gradio clients
-const gradioClient = await Client.connect("pourgrammar/Salesforce-blip-4800");
-const textToImageClient = await Client.connect("pourgrammar/ZB-Tech-Text-to-Image");
+const gradioClient = await Client.connect("pourgrammar/gallery-img-to-txt");
+const textToImageClient = await Client.connect("pourgrammar/gallery-img-gen");
 
 // Scene setup
 const scene = new THREE.Scene();
@@ -617,54 +617,62 @@ document.addEventListener("keyup", function (event) {
 });
 
 async function generateImageFromText(prompt) {
-    try {
-        processingText.visible = true;
-        let startTime = Date.now();
-        processingInterval = setInterval(() => {
-          const ctx = processingText.userData.context;
-          const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
-    
-          ctx.clearRect(0, 0, 256, 32);
-          ctx.fillStyle = "black";
-          ctx.font = "20px Arial";
-          ctx.textAlign = "center";
-          ctx.fillText(`Processing (${elapsedSeconds}s)`, 128, 20);
-          processingText.userData.texture.needsUpdate = true;
-        }, 1000);
+  try {
+    processingText.visible = true;
+    let startTime = Date.now();
+    processingInterval = setInterval(() => {
+      const ctx = processingText.userData.context;
+      const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
 
-        const result = await textToImageClient.predict("/predict", {
-            param_0: prompt,
-        });
-        console.log("Generated Image URL:", result.data);
+      ctx.clearRect(0, 0, 256, 32);
+      ctx.fillStyle = "black";
+      ctx.font = "20px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText(`Processing (${elapsedSeconds}s)`, 128, 20);
+      processingText.userData.texture.needsUpdate = true;
+    }, 1000);
 
-        displayImage(result.data);
-    } catch (error) {
-        console.error("Error generating image:", error);
-    }
-}
+    const result = await textToImageClient.predict("/infer", {
+      prompt: prompt,
+      negative_prompt: "",          // Adjust as needed
+      seed: 0,                      // Static seed; use `result.data[1]` to see the actual used seed
+      randomize_seed: true,         // Toggle this if you want deterministic output
+      width: 512,
+      height: 512,
+      guidance_scale: 0,
+      num_inference_steps: 2
+    });
 
-function displayImage(data) {
+    console.log("Generated Image Response:", result.data);
+
+    // result.data[0] is the image dict (e.g., { url: ..., path: ..., ... })
+    displayImage(result.data[0]);
+  } catch (error) {
+    console.error("Error generating image:", error);
     clearInterval(processingInterval);
     processingText.visible = false;
+  }
+}
 
-    const imageURL = data[0].url;
-    const textureLoader = new THREE.TextureLoader();
-      textureLoader.load(
-        imageURL,
-        function (texture) {
-          console.log("Texture loaded successfully");
-          mainCanvas.material.map = texture;
-          mainCanvas.material.needsUpdate = true;
-          clearInterval(processingInterval);
-          processingText.visible = false;
-        },
-        undefined,
-        function (err) {
-          console.error("Error loading generated image:", err);
-          clearInterval(processingInterval);
-          processingText.visible = false;
-        }
-    );
+function displayImage(imageData) {
+  clearInterval(processingInterval);
+  processingText.visible = false;
+
+  const imageURL = imageData.url;
+  const textureLoader = new THREE.TextureLoader();
+
+  textureLoader.load(
+    imageURL,
+    function (texture) {
+      console.log("Texture loaded successfully");
+      mainCanvas.material.map = texture;
+      mainCanvas.material.needsUpdate = true;
+    },
+    undefined,
+    function (err) {
+      console.error("Error loading generated image:", err);
+    }
+  );
 }
 
 createProcessingText();
@@ -729,20 +737,33 @@ function checkInteractions() {
     buttonIntersects[0].object.material.color.setHex(0x6666ff);
 
     if (controls.isLocked && isInteracting && gradioClient) {
+      updateLabelText(buttonIndex, "Thinking...");
       canvasToBlob(drawingContexts[buttonIndex].canvas).then(async (blob) => {
         try {
-          const result = await gradioClient.predict("/predict", [blob]);
+          // Convert the blob to a base64 URL
+          const reader = new FileReader();
+          reader.onloadend = async () => {
+            const base64DataUrl = reader.result;
+            // Call the Gradio API with the new expected format
+            const result = await gradioClient.predict("/predict", [
+              {
+                url: base64DataUrl,
+                is_stream: false,
+                meta: {},
+              }
+            ]);
 
-          // Extract the generated text from the response
-          const match = result.data[0].match(/generated_text='([^']+)'/);
-          if (match) {
-            const generatedText = match[1];
+            // The new API returns just a string
+            const generatedText = result.data[0];
             updateLabelText(buttonIndex, generatedText);
-          }
+          };
+
+          reader.readAsDataURL(blob);
         } catch (error) {
           console.error("Error calling Gradio API:", error);
         }
       });
+
 
       isInteracting = false;
     }
